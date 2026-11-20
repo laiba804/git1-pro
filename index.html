@@ -1,1 +1,202 @@
-Hello World
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Weather App</title>
+<style>
+  :root {
+    --bg: #eaf3f8;
+    --card: #ffffff;
+    --ink: #12263a;
+    --muted: #5d7285;
+    --accent: #1f6fb2;
+    --line: #d3e2ec;
+    --error: #b3261e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1b27;
+      --card: #172a3a;
+      --ink: #e8f1f7;
+      --muted: #9ab0c1;
+      --accent: #5ab0f0;
+      --line: #27425a;
+      --error: #ff8a80;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    display: flex;
+    justify-content: center;
+    padding: 24px 16px;
+  }
+  main { width: 100%; max-width: 480px; }
+  h1 { font-size: 1.4rem; margin: 0 0 16px; }
+  form { display: flex; gap: 8px; margin-bottom: 20px; }
+  input {
+    flex: 1;
+    padding: 12px 14px;
+    font-size: 1rem;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--card);
+    color: var(--ink);
+  }
+  button {
+    padding: 12px 18px;
+    font-size: 1rem;
+    border: 0;
+    border-radius: 10px;
+    background: var(--accent);
+    color: #fff;
+    cursor: pointer;
+  }
+  button:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .city { font-size: 1.1rem; color: var(--muted); margin: 0; }
+  .now { display: flex; align-items: center; gap: 14px; margin: 8px 0; }
+  .icon { font-size: 3.6rem; line-height: 1; }
+  .temp { font-size: 3.4rem; font-weight: 600; line-height: 1; }
+  .desc { font-size: 1.1rem; margin: 0 0 14px; }
+  .stats { display: flex; gap: 24px; color: var(--muted); font-size: .95rem; }
+  .stats strong { color: var(--ink); }
+  .forecast { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; text-align: center; }
+  .day { font-size: .85rem; color: var(--muted); }
+  .day .e { font-size: 1.6rem; margin: 4px 0; }
+  .day .t { font-size: .85rem; color: var(--ink); }
+  .msg { color: var(--muted); }
+  .msg.error { color: var(--error); }
+  [hidden] { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Weather App</h1>
+
+  <form id="searchForm">
+    <input id="cityInput" type="text" placeholder="City name, e.g. Multan" aria-label="City name" required>
+    <button type="submit">Search</button>
+  </form>
+
+  <p id="message" class="msg">Type a city name to see the weather.</p>
+
+  <section id="result" hidden>
+    <div class="card">
+      <p class="city" id="cityName"></p>
+      <div class="now">
+        <span class="icon" id="icon"></span>
+        <span class="temp" id="temp"></span>
+      </div>
+      <p class="desc" id="desc"></p>
+      <div class="stats">
+        <span>Humidity: <strong id="humidity"></strong></span>
+        <span>Wind: <strong id="wind"></strong></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="forecast" id="forecast"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+  // Weather code -> description and emoji (WMO codes used by Open-Meteo)
+  const CODES = {
+    0: ["Clear sky", "☀️"],
+    1: ["Mostly clear", "🌤️"], 2: ["Partly cloudy", "⛅"], 3: ["Cloudy", "☁️"],
+    45: ["Fog", "🌫️"], 48: ["Fog", "🌫️"],
+    51: ["Light drizzle", "🌦️"], 53: ["Drizzle", "🌦️"], 55: ["Heavy drizzle", "🌧️"],
+    61: ["Light rain", "🌧️"], 63: ["Rain", "🌧️"], 65: ["Heavy rain", "🌧️"],
+    71: ["Light snow", "🌨️"], 73: ["Snow", "🌨️"], 75: ["Heavy snow", "❄️"],
+    80: ["Rain showers", "🌦️"], 81: ["Rain showers", "🌧️"], 82: ["Heavy showers", "⛈️"],
+    95: ["Thunderstorm", "⛈️"], 96: ["Thunderstorm with hail", "⛈️"], 99: ["Thunderstorm with hail", "⛈️"]
+  };
+  const lookup = code => CODES[code] || ["Unknown", "🌡️"];
+
+  const form = document.getElementById("searchForm");
+  const input = document.getElementById("cityInput");
+  const message = document.getElementById("message");
+  const result = document.getElementById("result");
+
+  function showMessage(text, isError) {
+    message.textContent = text;
+    message.className = isError ? "msg error" : "msg";
+    message.hidden = false;
+  }
+
+  async function getWeather(city) {
+    showMessage("Loading...", false);
+    result.hidden = true;
+
+    try {
+      // Step 1: city name -> latitude and longitude
+      const geoUrl = "https://geocoding-api.open-meteo.com/v1/search?count=1&name=" + encodeURIComponent(city);
+      const geoRes = await fetch(geoUrl);
+      const geo = await geoRes.json();
+
+      if (!geo.results || geo.results.length === 0) {
+        showMessage("City not found. Check the spelling and try again.", true);
+        return;
+      }
+      const place = geo.results[0];
+
+      // Step 2: latitude and longitude -> weather
+      const url = "https://api.open-meteo.com/v1/forecast"
+        + "?latitude=" + place.latitude
+        + "&longitude=" + place.longitude
+        + "&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code"
+        + "&daily=weather_code,temperature_2m_max,temperature_2m_min"
+        + "&timezone=auto&forecast_days=5";
+      const res = await fetch(url);
+      const data = await res.json();
+
+      // Step 3: show on the page
+      const [text, emoji] = lookup(data.current.weather_code);
+      document.getElementById("cityName").textContent = place.name + (place.country ? ", " + place.country : "");
+      document.getElementById("icon").textContent = emoji;
+      document.getElementById("temp").textContent = Math.round(data.current.temperature_2m) + "°C";
+      document.getElementById("desc").textContent = text;
+      document.getElementById("humidity").textContent = data.current.relative_humidity_2m + "%";
+      document.getElementById("wind").textContent = Math.round(data.current.wind_speed_10m) + " km/h";
+
+      const box = document.getElementById("forecast");
+      box.innerHTML = "";
+      data.daily.time.forEach((dateStr, i) => {
+        const dayName = new Date(dateStr + "T00:00:00").toLocaleDateString("en", { weekday: "short" });
+        const e = lookup(data.daily.weather_code[i])[1];
+        const hi = Math.round(data.daily.temperature_2m_max[i]);
+        const lo = Math.round(data.daily.temperature_2m_min[i]);
+        const el = document.createElement("div");
+        el.className = "day";
+        el.innerHTML = '<div>' + dayName + '</div><div class="e">' + e + '</div><div class="t">' + hi + '° / ' + lo + '°</div>';
+        box.appendChild(el);
+      });
+
+      message.hidden = true;
+      result.hidden = false;
+    } catch (err) {
+      showMessage("Could not load the weather. Check your internet connection and try again.", true);
+    }
+  }
+
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    const city = input.value.trim();
+    if (city) getWeather(city);
+  });
+</script>
+</body>
+</html>
